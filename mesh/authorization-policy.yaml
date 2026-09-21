@@ -1,0 +1,29 @@
+# AuthorizationPolicy: who may call httpbin, and how.
+#
+# mTLS gives every workload a verified identity (its ServiceAccount, as a
+# SPIFFE URI). This policy uses that identity: only the ingress gateway and
+# the sleep pod may reach httpbin, and only with GET. Anything else gets a
+# 403 from the httpbin sidecar with the body "RBAC: access denied" -- the
+# application never sees the request.
+#
+# Once any ALLOW policy selects a workload, everything not allowed is denied.
+# Before this policy exists, everything is allowed.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: httpbin-readers
+  namespace: mesh-demo
+spec:
+  selector:
+    matchLabels:
+      app: httpbin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/mesh-demo/sa/sleep
+              - cluster.local/ns/istio-ingress/sa/istio-ingress
+      to:
+        - operation:
+            methods: ["GET"]

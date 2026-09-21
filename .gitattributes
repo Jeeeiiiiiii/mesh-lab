@@ -1,0 +1,4 @@
+# Everything the Linux runner and the toolbox container execute or parse
+# must stay LF, whatever the checkout platform does by default.
+* text=auto eol=lf
+*.png binary

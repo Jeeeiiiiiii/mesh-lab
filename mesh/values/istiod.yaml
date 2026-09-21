@@ -1,0 +1,36 @@
+# Helm values for istio/istiod (the control plane).
+#
+# Sidecar mode: every pod in an injected namespace gets an Envoy proxy that
+# owns all of the pod's traffic. Ambient mode is lighter, but the sidecar is
+# what makes the mesh visible -- `kubectl get pods` shows 2/2, and every
+# request in the demo passes through something you can inspect.
+meshConfig:
+  # Envoy access logs to stdout, so `kubectl logs -c istio-proxy` shows every
+  # request a sidecar handled. Off by default because it is noisy at scale.
+  accessLogFile: /dev/stdout
+
+  # Send outbound traffic for unknown hosts through the sidecar anyway, and
+  # let it fail there rather than bypass the mesh. REGISTRY_ONLY is the
+  # stricter option and is what you would use to force an egress gateway.
+  outboundTrafficPolicy:
+    mode: ALLOW_ANY
+
+pilot:
+  # One replica is enough for a lab. Production runs at least two and sets
+  # a PodDisruptionBudget; istiod being down does not break existing traffic
+  # (sidecars keep their last config) but stops new pods from being injected.
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+global:
+  proxy:
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi

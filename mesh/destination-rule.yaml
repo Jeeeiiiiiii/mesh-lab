@@ -1,0 +1,25 @@
+# DestinationRule: what happens after routing has picked a host. Subsets
+# turn a pod label into a name a VirtualService can send weight to; this is
+# the half of a canary that the VirtualService in gateway.yaml refers to.
+#
+# Also where you would put connection pools, outlier detection (ejecting a
+# pod that keeps returning 5xx) and per-host TLS settings.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: helloworld
+  namespace: mesh-demo
+spec:
+  host: helloworld
+  subsets:
+    - name: v1
+      labels:
+        version: v1
+    - name: v2
+      labels:
+        version: v2
+  trafficPolicy:
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 10s
+      baseEjectionTime: 30s

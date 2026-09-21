@@ -1,0 +1,55 @@
+# httpbin echoes requests back. GET /headers is how the demo proves mTLS: a
+# request that arrived over a mesh connection carries X-Forwarded-Client-Cert
+# with the caller's SPIFFE identity, which only the sidecar could have added.
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin
+  namespace: mesh-demo
+  labels:
+    app: httpbin
+    service: httpbin
+spec:
+  selector:
+    app: httpbin
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: httpbin
+  namespace: mesh-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin
+  namespace: mesh-demo
+  labels:
+    app: httpbin
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: httpbin
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: httpbin
+        version: v1
+    spec:
+      serviceAccountName: httpbin
+      containers:
+        - name: httpbin
+          image: docker.io/mccutchen/go-httpbin:2.25.0
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi

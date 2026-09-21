@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "mesh-lab: Istio on a private EKS cluster",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "ingress",
+        "label": "Traffic in",
+        "focus": [
+          "operator",
+          "nlb",
+          "gateway",
+          "hw1",
+          "hw2",
+          "httpbin"
+        ],
+        "note": "The NLB hands raw TCP to the Istio ingress gateway; a VirtualService splits /hello 90/10 between two versions and routes /httpbin/."
+      },
+      {
+        "id": "mesh",
+        "label": "Inside the mesh",
+        "focus": [
+          "istiod",
+          "sleep",
+          "httpbin",
+          "hw1",
+          "hw2"
+        ],
+        "note": "Every pod has a sidecar. istiod hands out certificates and config; STRICT mTLS and an AuthorizationPolicy decide who may call httpbin."
+      },
+      {
+        "id": "access",
+        "label": "Operator access",
+        "focus": [
+          "operator",
+          "bastion",
+          "apiserver",
+          "istiod"
+        ],
+        "note": "The API endpoint is private. kubectl goes through the bastion; the API server must reach istiod's injection webhook on 15017."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "operator",
+      "type": "external",
+      "label": "Operator",
+      "sublabel": "curl · kubectl",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        140,
+        62
+      ]
+    },
+    {
+      "id": "bastion",
+      "type": "backend",
+      "label": "Bastion EC2",
+      "sublabel": "SSH from admin_cidr",
+      "pos": [
+        290,
+        120
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "public subnet"
+    },
+    {
+      "id": "nlb",
+      "type": "cloud",
+      "label": "NLB :80",
+      "sublabel": "internet-facing",
+      "pos": [
+        290,
+        300
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "public subnet"
+    },
+    {
+      "id": "nat",
+      "type": "cloud",
+      "label": "NAT gateway",
+      "sublabel": "egress for the cluster",
+      "pos": [
+        290,
+        480
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "public subnet"
+    },
+    {
+      "id": "apiserver",
+      "type": "cloud",
+      "label": "EKS control plane",
+      "sublabel": "private endpoint :443",
+      "pos": [
+        560,
+        120
+      ],
+      "size": [
+        160,
+        62
+      ]
+    },
+    {
+      "id": "istiod",
+      "type": "security",
+      "label": "istiod",
+      "sublabel": "CA · xDS · injector",
+      "pos": [
+        880,
+        120
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "istio-system"
+    },
+    {
+      "id": "gateway",
+      "type": "frontend",
+      "label": "Istio ingress gateway",
+      "sublabel": "Envoy · NodePort 30080",
+      "pos": [
+        560,
+        300
+      ],
+      "size": [
+        160,
+        62
+      ],
+      "tag": "istio-ingress"
+    },
+    {
+      "id": "hw1",
+      "type": "backend",
+      "label": "helloworld v1",
+      "sublabel": "sidecar",
+      "pos": [
+        880,
+        260
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "mesh-demo"
+    },
+    {
+      "id": "hw2",
+      "type": "backend",
+      "label": "helloworld v2",
+      "sublabel": "sidecar",
+      "pos": [
+        880,
+        420
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "mesh-demo"
+    },
+    {
+      "id": "httpbin",
+      "type": "backend",
+      "label": "httpbin",
+      "sublabel": "sidecar · GET-only policy",
+      "pos": [
+        1160,
+        330
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "mesh-demo"
+    },
+    {
+      "id": "sleep",
+      "type": "external",
+      "label": "sleep",
+      "sublabel": "curl client in the mesh",
+      "pos": [
+        1160,
+        520
+      ],
+      "size": [
+        150,
+        62
+      ],
+      "tag": "mesh-demo"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "AWS (Floci, local) · VPC 10.0.0.0/16",
+      "wraps": [
+        "bastion",
+        "nlb",
+        "nat",
+        "apiserver",
+        "istiod",
+        "gateway",
+        "hw1",
+        "hw2",
+        "httpbin",
+        "sleep"
+      ],
+      "pad": 22
+    },
+    {
+      "kind": "security-group",
+      "label": "EKS · private subnets",
+      "wraps": [
+        "apiserver",
+        "istiod",
+        "gateway",
+        "hw1",
+        "hw2",
+        "httpbin",
+        "sleep"
+      ],
+      "pad": 14
+    }
+  ],
+  "connections": [
+    {
+      "from": "operator",
+      "to": "nlb",
+      "label": "HTTP :80",
+      "variant": "emphasis"
+    },
+    {
+      "from": "operator",
+      "to": "bastion",
+      "label": "SSH",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "from": "bastion",
+      "to": "apiserver",
+      "label": "kubectl :443",
+      "variant": "security"
+    },
+    {
+      "from": "apiserver",
+      "to": "istiod",
+      "label": "injection webhook :15017",
+      "variant": "dashed",
+      "labelAt": [
+        800,
+        116
+      ]
+    },
+    {
+      "from": "nlb",
+      "to": "gateway",
+      "label": "TCP → NodePort 30080",
+      "variant": "emphasis"
+    },
+    {
+      "from": "gateway",
+      "to": "hw1",
+      "label": "/hello 90%",
+      "variant": "emphasis"
+    },
+    {
+      "from": "gateway",
+      "to": "hw2",
+      "label": "/hello 10%"
+    },
+    {
+      "from": "gateway",
+      "to": "httpbin",
+      "label": "/httpbin/ (rewrite)"
+    },
+    {
+      "from": "sleep",
+      "to": "httpbin",
+      "label": "mTLS · GET only",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "istiod",
+      "to": "gateway",
+      "label": "certs + config (xDS)",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "STRICT mTLS, mesh-wide",
+      "items": [
+        "PeerAuthentication in istio-system",
+        "Sidecars refuse plaintext from outside the mesh",
+        "Identity = SPIFFE id of the ServiceAccount"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Who may call httpbin",
+      "items": [
+        "AuthorizationPolicy: sleep and the gateway, GET only",
+        "POST → 403 RBAC: access denied, before the app",
+        "helloworld → httpbin: denied"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Traffic shaping without a redeploy",
+      "items": [
+        "VirtualService weights: 90 / 10",
+        "DestinationRule subsets by version label",
+        "Change the weights, apply; no pod restarts"
+      ]
+    }
+  ]
+}

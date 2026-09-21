@@ -1,0 +1,9 @@
+# The label is the whole opt-in. istiod watches for it and mutates every pod
+# created here to add the istio-proxy sidecar and an init container that
+# rewrites the pod's iptables so all traffic passes through the proxy.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mesh-demo
+  labels:
+    istio-injection: enabled

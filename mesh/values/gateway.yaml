@@ -1,0 +1,29 @@
+# Helm values for istio/gateway (the ingress gateway).
+#
+# The gateway is just another Envoy, running as a Deployment with no app
+# behind it. It is the mesh's front door: the NLB delivers raw TCP to it,
+# and the Gateway + VirtualService resources in ../gateway.yaml tell it what
+# to do with the HTTP inside.
+#
+# NodePort rather than LoadBalancer: the NLB is provisioned by Terraform and
+# its target group points at this port on every node. With type LoadBalancer
+# the cloud controller would create a second, unmanaged NLB on its own.
+# Keep the port in sync with `ingress_node_port` in terraform/variables.tf.
+service:
+  type: NodePort
+  ports:
+    - name: http2
+      port: 80
+      protocol: TCP
+      targetPort: 80
+      nodePort: 30080
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

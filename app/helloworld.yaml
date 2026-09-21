@@ -1,0 +1,89 @@
+# Two versions of the same service, one Service in front of both.
+#
+# Without the mesh, the Service round-robins across every pod and there is no
+# way to say "10% to v2". The `version` label is what Istio's DestinationRule
+# keys on to tell them apart. Images are Istio's own samples: GET /hello
+# returns "Hello version: v1, instance: <pod>".
+apiVersion: v1
+kind: Service
+metadata:
+  name: helloworld
+  namespace: mesh-demo
+  labels:
+    app: helloworld
+    service: helloworld
+spec:
+  selector:
+    app: helloworld
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: helloworld
+  namespace: mesh-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helloworld-v1
+  namespace: mesh-demo
+  labels:
+    app: helloworld
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: helloworld
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: helloworld
+        version: v1
+    spec:
+      serviceAccountName: helloworld
+      containers:
+        - name: helloworld
+          image: docker.io/istio/examples-helloworld-v1:1.0
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helloworld-v2
+  namespace: mesh-demo
+  labels:
+    app: helloworld
+    version: v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: helloworld
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: helloworld
+        version: v2
+    spec:
+      serviceAccountName: helloworld
+      containers:
+        - name: helloworld
+          image: docker.io/istio/examples-helloworld-v2:1.0
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi

@@ -1,0 +1,16 @@
+# PeerAuthentication in the root namespace (istio-system) is mesh-wide.
+#
+# STRICT means a sidecar refuses any inbound connection that is not mTLS
+# from another sidecar. Plaintext from a pod outside the mesh is dropped at
+# the proxy, before the application sees it. The default is PERMISSIVE,
+# which accepts both so a mesh can be rolled out gradually; flipping it to
+# STRICT is the point at which the mesh becomes a security boundary rather
+# than an observability layer.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: istio-system
+spec:
+  mtls:
+    mode: STRICT

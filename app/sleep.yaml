@@ -1,0 +1,35 @@
+# A pod that does nothing but exist inside the mesh, so there is somewhere to
+# run curl from. Its ServiceAccount is its identity: the AuthorizationPolicy
+# in mesh/authorization-policy.yaml refers to it by name.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sleep
+  namespace: mesh-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sleep
+  namespace: mesh-demo
+  labels:
+    app: sleep
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sleep
+  template:
+    metadata:
+      labels:
+        app: sleep
+    spec:
+      serviceAccountName: sleep
+      containers:
+        - name: sleep
+          image: docker.io/curlimages/curl:8.12.1
+          command: ["/bin/sleep", "infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
