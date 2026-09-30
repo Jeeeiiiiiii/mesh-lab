@@ -101,6 +101,49 @@ kubectl -n istio-ingress port-forward svc/istio-ingress 8080:80
 - Add a `fault.delay` to the httpbin route in the `VirtualService` and see latency appear without touching httpbin.
 - Remove the `node_from_cluster` security group rule in `terraform/security.tf`. In a real account, the next pod created in `mesh-demo` would fail admission with a webhook timeout. (Locally the emulator does not enforce security groups, so this one is thought-experiment only.)
 
+## Observability
+
+Every sidecar already counts what it does: each request, by source, destination,
+version and response code (`istio_requests_total`), plus latency and bytes. None
+of that is visible until something collects it. The optional stack in
+`observability/` does:
+
+| Tool | Role | What to look at |
+|---|---|---|
+| Prometheus | Scrapes every Envoy's counters every 15s (the pods are annotated by Istio; nothing to configure) | `sum by (destination_version) (rate(istio_requests_total{destination_app="helloworld"}[1m]))` |
+| Grafana | The official Istio dashboards over those metrics | Dashboards → Istio → Istio Service Dashboard, service `helloworld` |
+| Kiali | The mesh as a live graph, with the Istio config that shapes it | Graph → namespace `mesh-demo`, Display → Traffic Distribution |
+| `loadgen` | Constant traffic, so the graphs have something to draw | Its direct call to httpbin is refused, so one edge is always red |
+
+The three tools run in their own namespace, `observability`, which is not
+injected: they watch the mesh without being part of it.
+
+```bash
+bash scripts/observability-up.sh     # ~2-3 min: three Helm releases + loadgen
+bash scripts/dashboards.sh           # port-forwards until Ctrl+C
+```
+
+Kiali on http://localhost:20001, Grafana on :3000, Prometheus on :9090. If a
+port is taken, override it: `KIALI_PORT=21001 bash scripts/dashboards.sh`.
+
+Things to watch while you change the mesh:
+
+- **The split.** With Traffic Distribution on, the `helloworld` edges show the
+  percentage going to v1 and v2. Change the weights in `mesh/gateway.yaml`,
+  apply, and watch the numbers move over the next minute.
+- **The refusal.** `loadgen → httpbin` is red: 100% 4xx. Click the edge to see
+  the 403s; click httpbin and the Istio Config tab lists the
+  `AuthorizationPolicy` that did it. Add `cluster.local/ns/mesh-demo/sa/loadgen`
+  to the policy's principals and the edge turns green.
+- **The padlock.** Display → Security draws a lock on every mTLS edge. Switch
+  `PeerAuthentication` to `PERMISSIVE` and run the `default`-namespace pod from
+  "Things to try": its edge arrives from `unknown` with no lock.
+- **Latency.** Add the `fault.delay` to the httpbin route and watch the P99 on
+  the Istio Service Dashboard for httpbin climb to 3s.
+
+No tracing: traces need the apps to forward trace headers, and the samples
+do not. The stack is torn down with the cluster by `scripts/down.sh`.
+
 ## Diagram
 
 `docs/architecture.html` — an interactive version of the picture above with
@@ -114,7 +157,7 @@ Each of these is a self-contained afternoon and builds on what is here:
 1. **Register the nodes into the NLB for real.** Install the AWS Load Balancer Controller and a `TargetGroupBinding` for the ingress gateway Service — the piece the README lists as gap 1. Locally the NLB stays metadata, but the manifests are what a real cluster needs.
 2. **Ambient mode.** Re-install Istio with the `ambient` profile (ztunnel + a waypoint for `httpbin`) and re-run `demo.sh`. Same policies, no sidecars; compare `kubectl get pods` before and after.
 3. **Egress control.** Switch `outboundTrafficPolicy` to `REGISTRY_ONLY`, watch `sleep` lose the internet, then add a `ServiceEntry` and an egress gateway for one external host.
-4. **Mesh observability.** Point the sidecars' telemetry at pipeline-lab's Prometheus and Tempo (or install Kiali) and watch the traffic split and the 403s as graphs.
+4. **Tracing.** Metrics and the graph are in `observability/` (see above). Traces are not: add Tempo or Jaeger, set the mesh's tracing provider in `mesh/values/istiod.yaml`, and deploy an app that forwards the `traceparent` header (Istio's Bookinfo does) to see one request as a single trace across the gateway and every hop.
 5. **Progressive delivery.** Replace the fixed 90/10 with Argo Rollouts driving the `VirtualService` weights from a Prometheus success-rate query — a canary that promotes itself.
 6. **Run it on real AWS.** Delete the `endpoints` block, add IRSA for the load balancer controller, and apply. Everything else is already written for it.
 
@@ -143,5 +186,7 @@ terraform/     VPC, subnets, NAT, security groups, IAM, EKS, NLB, bastion
 mesh/values/   Helm values for istiod and the ingress gateway
 mesh/          Gateway, VirtualService, DestinationRule, PeerAuthentication, AuthorizationPolicy
 app/           helloworld v1+v2, httpbin, sleep -- namespace labelled for injection
-scripts/       kubeconfig.sh, mesh-up.sh, demo.sh, down.sh, bastion-bootstrap.sh (EC2 user data)
+observability/ Helm values for Prometheus, Grafana, Kiali; loadgen traffic generator
+scripts/       kubeconfig.sh, mesh-up.sh, demo.sh, observability-up.sh, dashboards.sh,
+               down.sh, bastion-bootstrap.sh (EC2 user data)
 ```

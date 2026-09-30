@@ -1,0 +1,52 @@
+# Helm values for kiali/kiali-server.
+#
+# Kiali is the mesh-specific view. It reads istio_requests_total from
+# Prometheus and draws who called whom, at what rate, with what error rate,
+# and it reads the Istio config from the API server to show which
+# VirtualService split the traffic and which AuthorizationPolicy refused it.
+# It stores nothing itself: stop Prometheus and the graph goes empty.
+
+# No login for a local lab (see grafana.yaml for why this is acceptable).
+auth:
+  strategy: anonymous
+
+deployment:
+  # Read-only across the cluster. Kiali can also edit Istio config from its
+  # UI; the lab keeps that in YAML files under mesh/.
+  view_only_mode: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 512Mi
+
+server:
+  # Serve at / rather than /kiali so the port-forward URL is just the port.
+  web_root: /
+
+external_services:
+  prometheus:
+    url: http://prometheus-server.observability.svc:80
+  grafana:
+    enabled: true
+    # internal_url is what Kiali's server calls; external_url is what your
+    # browser opens when you click a dashboard link in Kiali.
+    internal_url: http://grafana.observability.svc:80
+    external_url: http://localhost:3000
+    # Adds "View in Grafana" links to a service or workload's Metrics tab,
+    # opening the dashboard with that service or workload already selected.
+    dashboards:
+      - name: Istio Service Dashboard
+        variables:
+          namespace: var-namespace
+          service: var-service
+      - name: Istio Workload Dashboard
+        variables:
+          namespace: var-namespace
+          workload: var-workload
+      - name: Istio Mesh Dashboard
+  # No tracing backend in this lab. Traces need the apps to forward trace
+  # headers, and the sample apps do not.
+  tracing:
+    enabled: false

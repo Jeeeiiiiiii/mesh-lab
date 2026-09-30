@@ -1,0 +1,58 @@
+# A steady trickle of traffic, so the graphs have something to draw.
+#
+# It runs inside the mesh (mesh-demo is injected), with its own identity:
+# the loadgen ServiceAccount. Three kinds of request, each one exercising a
+# resource in mesh/:
+#
+#   loadgen -> ingress gateway -> /hello      the VirtualService split v1/v2
+#   loadgen -> ingress gateway -> /httpbin/   allowed: the gateway is in the policy
+#   loadgen -> httpbin directly               403: loadgen is not in the policy
+#
+# In Kiali the first two draw green edges through the gateway and the third a
+# red one straight to httpbin. Delete this Deployment and the graph goes
+# quiet within a minute.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: loadgen
+  namespace: mesh-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: mesh-demo
+  labels:
+    app: loadgen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadgen
+  template:
+    metadata:
+      labels:
+        app: loadgen
+        version: v1
+    spec:
+      serviceAccountName: loadgen
+      containers:
+        - name: loadgen
+          image: docker.io/curlimages/curl:8.12.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              GW=http://istio-ingress.istio-ingress.svc.cluster.local
+              while true; do
+                curl -s -o /dev/null -m 2 "$GW/hello"
+                curl -s -o /dev/null -m 2 "$GW/hello"
+                curl -s -o /dev/null -m 2 "$GW/httpbin/get"
+                curl -s -o /dev/null -m 2 http://httpbin:8000/get
+                sleep 1
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi

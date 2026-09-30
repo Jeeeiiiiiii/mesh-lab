@@ -1,0 +1,57 @@
+# Helm values for grafana/grafana.
+#
+# Grafana draws what Prometheus stores. The Istio project publishes its
+# dashboards on grafana.com. The chart can download them at startup, but pods
+# in the local cluster cannot resolve internet hostnames, so the JSON is kept
+# in ../dashboards and scripts/observability-up.sh loads it into a ConfigMap.
+
+# No login for a local lab. Anyone who can reach the port is an admin, which
+# is only acceptable because the port is only reachable via kubectl
+# port-forward.
+grafana.ini:
+  auth.anonymous:
+    enabled: true
+    org_role: Admin
+  auth:
+    disable_login_form: true
+
+persistence:
+  enabled: false
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: http://prometheus-server.observability.svc:80
+        isDefault: true
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: istio
+        orgId: 1
+        folder: Istio
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/istio
+
+# The official Istio dashboards (grafana.com/orgs/istio: 7639 mesh, 7636
+# service, 7630 workload, 7645 control plane, 11829 performance), from the
+# istio-dashboards ConfigMap. The titles matter: Kiali links to "Istio Service
+# Dashboard" and "Istio Workload Dashboard" by name.
+dashboardsConfigMaps:
+  istio: istio-dashboards
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
