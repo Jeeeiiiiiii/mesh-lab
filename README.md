@@ -110,7 +110,7 @@ of that is visible until something collects it. The optional stack in
 
 | Tool | Role | What to look at |
 |---|---|---|
-| Prometheus | Scrapes every Envoy's counters every 15s (the pods are annotated by Istio; nothing to configure) | `sum by (destination_version) (rate(istio_requests_total{destination_app="helloworld"}[1m]))` |
+| Prometheus | Scrapes every Envoy's counters every 5s (the pods are annotated by Istio; nothing to configure) | `sum by (destination_version) (rate(istio_requests_total{destination_app="helloworld"}[1m]))` |
 | Grafana | The official Istio dashboards over those metrics | Dashboards → Istio → Istio Service Dashboard, service `helloworld` |
 | Kiali | The mesh as a live graph, with the Istio config that shapes it | Graph → namespace `mesh-demo`, Display → Traffic Distribution |
 | `loadgen` | Constant traffic, so the graphs have something to draw | Its direct call to httpbin is refused, so one edge is always red |
@@ -143,6 +143,48 @@ Things to watch while you change the mesh:
 
 No tracing: traces need the apps to forward trace headers, and the samples
 do not. The stack is torn down with the cluster by `scripts/down.sh`.
+
+### Traffic console
+
+A page with buttons that send a burst of requests through the mesh, so you can
+cause something and then find it in the graphs. `observability-up.sh`
+installs it; it is served through the ingress gateway like any outside request:
+
+```bash
+kubectl -n istio-ingress port-forward svc/istio-ingress 18080:80
+# http://localhost:18080/console
+```
+
+| Button | Path through the mesh | Result |
+|---|---|---|
+| Split traffic between versions | console → gateway → helloworld v1/v2 | the v1/v2 ratio from `mesh/gateway.yaml` |
+| Get refused by the guest list | console → httpbin (POST) | 403 from httpbin's sidecar: `console` is not in the policy |
+| Make httpbin fail | console → gateway → httpbin `/status/500` | a 5xx spike |
+| Make httpbin slow | console → gateway → httpbin `/delay/2` | p95 latency of about 2s |
+
+Under each button, a bar shows where that burst went. The **Background
+traffic** switch scales `loadgen` to 0 or 1, so the graphs show only your
+requests. The console's ServiceAccount may scale that one Deployment and
+nothing else (`observability/console.yaml`).
+
+The matching Grafana dashboard is **Istio → Traffic console**
+(`localhost:3000/d/traffic-console`). It refreshes every 5s and its first
+panel counts only `source_workload="console"`. A burst appears 10–20 seconds
+after the click.
+
+How it works: `observability/console/server.py` is a standard-library Python
+server, loaded from a ConfigMap onto a stock `python:3.13-alpine` image, so
+there is nothing to build. It runs in `mesh-demo` with its own identity, which
+is why it shows up as its own node in Kiali and can be filtered on in
+Grafana. A second VirtualService adds `/console` to the gateway without
+touching `mesh/gateway.yaml`: Istio merges gateway VirtualServices that share
+a host.
+
+One Prometheus detail it works around: Envoy creates a counter on its first
+request, so after a burst of 50 the first value Prometheus scrapes is
+already 50. `rate()` needs an earlier value to compare against, so that first
+burst would never appear. The console sends one request of each kind at
+startup, so every counter exists before your first click.
 
 ## Diagram
 
@@ -186,7 +228,8 @@ terraform/     VPC, subnets, NAT, security groups, IAM, EKS, NLB, bastion
 mesh/values/   Helm values for istiod and the ingress gateway
 mesh/          Gateway, VirtualService, DestinationRule, PeerAuthentication, AuthorizationPolicy
 app/           helloworld v1+v2, httpbin, sleep -- namespace labelled for injection
-observability/ Helm values for Prometheus, Grafana, Kiali; loadgen traffic generator
+observability/ Helm values for Prometheus, Grafana, Kiali; Istio + Traffic console
+               dashboards; loadgen; the traffic console (console/, console.yaml)
 scripts/       kubeconfig.sh, mesh-up.sh, demo.sh, observability-up.sh, dashboards.sh,
                down.sh, bastion-bootstrap.sh (EC2 user data)
 ```

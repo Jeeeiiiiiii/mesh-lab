@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Traffic console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #E9EDF1;
+    --panel: #F7F9FB;
+    --ink: #17212B;
+    --muted: #56657A;
+    --line: #C7D0DA;
+    --focus: #2F5FD0;
+    /* one color per outcome, used in the bars and their legends */
+    --v1: #13807E;
+    --v2: #B7791F;
+    --ok: #3E6FA8;
+    --denied: #B3263E;
+    --error: #7A3FA0;
+    --failed: #7C8792;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #11171F; --panel: #19212B; --ink: #E3E9EF; --muted: #93A1B1;
+      --line: #2C3845; --focus: #7FA2FF;
+      --v1: #2BB3AF; --v2: #E0A23C; --ok: #6D9BD6; --denied: #E2566D;
+      --error: #B37AD6; --failed: #8E99A5;
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 16px/1.5 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 40px 16px 64px; }
+
+  header { display: grid; grid-template-columns: 1fr auto; gap: 16px 32px; align-items: start; margin-bottom: 32px; }
+  h1 { font-size: 2.6rem; line-height: 1.05; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 10px; }
+  .lede { margin: 0; max-width: 56ch; color: var(--muted); }
+  .links { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 14px; }
+  a { color: var(--ink); text-decoration-color: var(--line); text-underline-offset: 3px; text-decoration-thickness: 2px; }
+  a:hover { text-decoration-color: currentColor; }
+
+  /* the background traffic switch */
+  .bg { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 240px; }
+  .bg-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .bg strong { font-weight: 600; }
+  .bg p { margin: 6px 0 0; font-size: 0.85rem; color: var(--muted); }
+  .switch {
+    position: relative; width: 52px; height: 30px; border-radius: 15px; border: 0; cursor: pointer;
+    background: var(--line); transition: background .15s;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s;
+  }
+  .switch[aria-checked="true"] { background: var(--v1); }
+  .switch[aria-checked="true"]::after { transform: translateX(22px); }
+  .switch:disabled { opacity: .5; cursor: progress; }
+
+  /* one row per kind of burst */
+  .shot { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; margin-bottom: 14px; }
+  .shot-head { display: grid; grid-template-columns: 1fr auto; gap: 12px 24px; align-items: start; }
+  h2 { font-size: 1.2rem; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.005em; }
+  .path { margin: 0; color: var(--muted); }
+  .path b { color: var(--ink); font-weight: 500; }
+  .watch { margin: 10px 0 0; max-width: 62ch; font-size: 0.93rem; }
+  .controls { display: flex; gap: 8px; align-items: center; }
+  select, button.fire {
+    font: inherit; font-size: 0.95rem; height: 40px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--paper); color: var(--ink); padding: 0 10px;
+  }
+  button.fire {
+    background: var(--ink); color: var(--panel); border-color: var(--ink); font-weight: 600;
+    padding: 0 18px; min-width: 116px; cursor: pointer;
+  }
+  button.fire:disabled { opacity: .6; cursor: progress; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  /* the landing bar: where the burst went */
+  .result { margin-top: 16px; }
+  .result[hidden] { display: none; }
+  /* Each new bar sweeps in left to right, so a new burst visibly replaces
+     the last one. The widths are final from the start; only the reveal
+     animates, so a burst fired from a background tab still lands whole. */
+  .bar {
+    display: flex; height: 30px; border-radius: 6px; overflow: hidden; background: var(--paper);
+    animation: land .5s cubic-bezier(.2,.7,.2,1);
+  }
+  @keyframes land { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  .seg {
+    display: flex; align-items: center; justify-content: center; flex: none; overflow: hidden;
+    color: #fff; font-size: 0.85rem; font-weight: 600; white-space: nowrap;
+  }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 0.9rem; }
+  .legend li { display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  .stats { margin: 6px 0 0; font-size: 0.9rem; color: var(--muted); }
+  .stats span + span { margin-left: 16px; }
+  .error-msg { margin: 12px 0 0; color: var(--denied); font-weight: 500; }
+
+  footer { margin-top: 28px; color: var(--muted); font-size: 0.9rem; max-width: 70ch; }
+
+  @media (max-width: 640px) {
+    header, .shot-head { grid-template-columns: 1fr; }
+    h1 { font-size: 2.1rem; }
+    .controls { flex-wrap: wrap; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bar { animation: none; }
+    .switch, .switch::after { transition: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Traffic console</h1>
+      <p class="lede">Send a burst of requests through the mesh, then find it in Grafana and Kiali.
+        Every request here leaves as <b>console</b>, so you can tell your bursts apart from the background traffic.</p>
+      <nav class="links" aria-label="Dashboards">
+        <a href="http://localhost:3000/d/traffic-console" target="_blank" rel="noopener">Grafana: Traffic console dashboard</a>
+        <a href="http://localhost:20001/console/graph/namespaces/?namespaces=mesh-demo&graphType=versionedApp&duration=300&refresh=10000" target="_blank" rel="noopener">Kiali: mesh-demo graph</a>
+      </nav>
+    </div>
+    <div class="bg">
+      <div class="bg-row">
+        <strong id="bg-label">Background traffic</strong>
+        <button class="switch" id="bg-switch" role="switch" aria-checked="false" aria-labelledby="bg-label" disabled></button>
+      </div>
+      <p id="bg-status">Checking loadgen…</p>
+    </div>
+  </header>
+
+  <section class="shot" data-kind="split">
+    <div class="shot-head">
+      <div>
+        <h2>Split traffic between versions</h2>
+        <p class="path"><b>console</b> to the front door, which sends each request to <b>helloworld v1</b> or <b>v2</b></p>
+      </div>
+      <div class="controls">
+        <select id="n-split" aria-label="Number of requests"><option>10</option><option selected>50</option><option>100</option><option>200</option></select>
+        <button class="fire" type="button">Send 50</button>
+      </div>
+    </div>
+    <p class="watch">The v1 and v2 shares should match the weights in <code>mesh/gateway.yaml</code>. Change the weights, apply, and send again.</p>
+    <div class="result" hidden aria-live="polite"></div>
+  </section>
+
+  <section class="shot" data-kind="denied">
+    <div class="shot-head">
+      <div>
+        <h2>Get refused by the guest list</h2>
+        <p class="path"><b>console</b> straight to <b>httpbin</b>, with POST</p>
+      </div>
+      <div class="controls">
+        <select id="n-denied" aria-label="Number of requests"><option>10</option><option selected>50</option><option>100</option><option>200</option></select>
+        <button class="fire" type="button">Send 50</button>
+      </div>
+    </div>
+    <p class="watch">Every request should come back 403. httpbin's proxy refuses them because <b>console</b> is not in the AuthorizationPolicy, and the httpbin app never sees them.</p>
+    <div class="result" hidden aria-live="polite"></div>
+  </section>
+
+  <section class="shot" data-kind="errors">
+    <div class="shot-head">
+      <div>
+        <h2>Make httpbin fail</h2>
+        <p class="path"><b>console</b> to the front door, then <b>httpbin</b>, which answers 500 on purpose</p>
+      </div>
+      <div class="controls">
+        <select id="n-errors" aria-label="Number of requests"><option>10</option><option selected>50</option><option>100</option><option>200</option></select>
+        <button class="fire" type="button">Send 50</button>
+      </div>
+    </div>
+    <p class="watch">This is what a broken service looks like from outside: a 5xx spike in Grafana and a red line from the front door to httpbin in Kiali.</p>
+    <div class="result" hidden aria-live="polite"></div>
+  </section>
+
+  <section class="shot" data-kind="slow">
+    <div class="shot-head">
+      <div>
+        <h2>Make httpbin slow</h2>
+        <p class="path"><b>console</b> to the front door, then <b>httpbin</b>, which waits 2 seconds before answering</p>
+      </div>
+      <div class="controls">
+        <select id="n-slow" aria-label="Number of requests"><option>10</option><option selected>20</option><option>50</option></select>
+        <button class="fire" type="button">Send 20</button>
+      </div>
+    </div>
+    <p class="watch">Everything succeeds, but httpbin's p95 latency climbs to about 2 seconds. Requests go 10 at a time, so 20 take about 4 seconds.</p>
+    <div class="result" hidden aria-live="polite"></div>
+  </section>
+
+  <footer>
+    Grafana and Kiali trail your click by 10 to 20 seconds: Prometheus collects the proxies' counters every 5 seconds,
+    and the charts average over the last 30. The links above work while <code>bash scripts/dashboards.sh</code> is running.
+  </footer>
+</main>
+
+<script>
+const API = "/console/api";
+
+// Outcome buckets, in the order they appear in the bar.
+const OUTCOMES = [
+  { key: "v1",     label: "helloworld v1",       color: "var(--v1)" },
+  { key: "v2",     label: "helloworld v2",       color: "var(--v2)" },
+  { key: "ok",     label: "Succeeded",           color: "var(--ok)" },
+  { key: "denied", label: "Refused (403)",       color: "var(--denied)" },
+  { key: "4xx",    label: "Other 4xx",           color: "var(--denied)" },
+  { key: "5xx",    label: "Server error (5xx)",  color: "var(--error)" },
+  { key: "failed", label: "No response",         color: "var(--failed)" },
+];
+
+function bucket(r) {
+  const b = {};
+  const add = (k, n) => { if (n) b[k] = (b[k] || 0) + n; };
+  add("v1", r.versions.v1 || 0);
+  add("v2", r.versions.v2 || 0);
+  const versioned = (r.versions.v1 || 0) + (r.versions.v2 || 0);
+  for (const [code, n] of Object.entries(r.codes)) {
+    const c = Number(code);
+    if (c >= 200 && c < 300) add("ok", n);
+    else if (c === 403) add("denied", n);
+    else if (c >= 400 && c < 500) add("4xx", n);
+    else if (c >= 500) add("5xx", n);
+    else add("failed", n);
+  }
+  if (b.ok) b.ok -= versioned;          // the v1/v2 answers are 200s already counted
+  if (!b.ok) delete b.ok;
+  return b;
+}
+
+const secs = ms => ms >= 1000 ? (ms / 1000).toFixed(1) + " s" : ms + " ms";
+
+function render(el, r) {
+  const b = bucket(r);
+  const shown = OUTCOMES.filter(o => b[o.key]);
+  el.innerHTML = `
+    <div class="bar" role="img" aria-label="${shown.map(o => `${b[o.key]} ${o.label}`).join(", ")}">
+      ${shown.map(o => `<div class="seg" style="background:${o.color};width:${100 * b[o.key] / r.sent}%">${b[o.key]}</div>`).join("")}
+    </div>
+    <ul class="legend">
+      ${shown.map(o => `<li><span class="swatch" style="background:${o.color}"></span>${o.label}: ${b[o.key]} (${Math.round(100 * b[o.key] / r.sent)}%)</li>`).join("")}
+    </ul>
+    <p class="stats"><span>Sent ${r.sent} in ${secs(r.elapsed_ms)}</span><span>p50 ${secs(r.latency_ms.p50)}</span><span>p95 ${secs(r.latency_ms.p95)}</span><span>Slowest ${secs(r.latency_ms.max)}</span></p>`;
+  el.hidden = false;
+}
+
+function showError(el, msg) {
+  el.innerHTML = `<p class="error-msg">${msg}</p>`;
+  el.hidden = false;
+}
+
+document.querySelectorAll(".shot").forEach(shot => {
+  const kind = shot.dataset.kind;
+  const select = shot.querySelector("select");
+  const button = shot.querySelector("button.fire");
+  const result = shot.querySelector(".result");
+  const label = () => `Send ${select.value}`;
+  select.addEventListener("change", () => { button.textContent = label(); });
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "Sending…";
+    try {
+      const res = await fetch(`${API}/fire`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, count: Number(select.value) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      render(result, data);
+    } catch (e) {
+      showError(result, `The burst did not run: ${e.message}. Check the console pod with kubectl -n mesh-demo logs deploy/console -c console.`);
+    } finally {
+      button.disabled = false;
+      button.textContent = label();
+    }
+  });
+});
+
+// Background traffic switch: scales the loadgen Deployment between 0 and 1.
+const bgSwitch = document.getElementById("bg-switch");
+const bgStatus = document.getElementById("bg-status");
+
+function showLoadgen(replicas) {
+  const on = replicas > 0;
+  bgSwitch.setAttribute("aria-checked", String(on));
+  bgStatus.textContent = on
+    ? "loadgen is sending a steady trickle. Turn it off to see only your bursts."
+    : "loadgen is off. Only your bursts reach the mesh.";
+}
+
+async function loadgen(method, body) {
+  const res = await fetch(`${API}/loadgen`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body && JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data.replicas;
+}
+
+bgSwitch.addEventListener("click", async () => {
+  const turnOn = bgSwitch.getAttribute("aria-checked") !== "true";
+  bgSwitch.disabled = true;
+  bgStatus.textContent = turnOn ? "Starting loadgen…" : "Stopping loadgen…";
+  try { showLoadgen(await loadgen("POST", { running: turnOn })); }
+  catch (e) { bgStatus.textContent = `Could not change loadgen: ${e.message}`; }
+  finally { bgSwitch.disabled = false; }
+});
+
+loadgen("GET")
+  .then(showLoadgen)
+  .catch(e => { bgStatus.textContent = `Could not read loadgen: ${e.message}`; })
+  .finally(() => { bgSwitch.disabled = false; });
+</script>
+</body>
+</html>

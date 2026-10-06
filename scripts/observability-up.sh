@@ -5,6 +5,7 @@
 #   grafana    -- the official Istio dashboards over those counters
 #   kiali      -- the mesh graph: who calls whom, split, errors, policies
 #   loadgen    -- steady traffic through the gateway and one refused call
+#   console    -- a page with buttons that fire bursts on demand (/console)
 #
 # All three tools go in their own namespace, `observability`, which is not
 # labelled for injection: they watch the mesh from outside it.
@@ -54,8 +55,19 @@ echo "==> loadgen (traffic for the graphs)"
 kubectl apply -f observability/loadgen.yaml
 kubectl -n mesh-demo rollout status deploy/loadgen --timeout=5m
 
+echo "==> traffic console (buttons that send bursts)"
+kubectl -n mesh-demo create configmap console-app \
+  --from-file=observability/console/ --dry-run=client -o yaml \
+  | kubectl apply -f -
+kubectl apply -f observability/console.yaml
+# A pod reads its ConfigMap at start; restart so code changes take effect.
+kubectl -n mesh-demo rollout restart deploy/console
+kubectl -n mesh-demo rollout status deploy/console --timeout=5m
+
 echo
 kubectl -n "$NS" get pods
 echo
 echo "Give Prometheus a minute to collect a few scrapes, then:"
-echo "  bash scripts/dashboards.sh"
+echo "  bash scripts/dashboards.sh                                  # Grafana, Kiali, Prometheus"
+echo "  kubectl -n istio-ingress port-forward svc/istio-ingress 18080:80"
+echo "  http://localhost:18080/console                              # the traffic console"

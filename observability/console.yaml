@@ -1,0 +1,130 @@
+# Traffic console: a page with buttons that fire bursts through the mesh.
+#
+# Open it through the front door, the same way outside traffic arrives:
+#   kubectl -n istio-ingress port-forward svc/istio-ingress 18080:80
+#   http://localhost:18080/console
+#
+# It runs in mesh-demo (injected) as its own ServiceAccount, so its requests
+# are labelled source_workload="console" in Prometheus and show up in Kiali as
+# their own node. The code lives in the console-app ConfigMap, created from
+# observability/console/ by scripts/observability-up.sh.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: console
+  namespace: mesh-demo
+---
+# The loadgen on/off switch. The console may read and scale exactly one
+# Deployment -- resourceNames pins it -- and nothing else in the cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: console-scale-loadgen
+  namespace: mesh-demo
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: ["loadgen"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: console-scale-loadgen
+  namespace: mesh-demo
+subjects:
+  - kind: ServiceAccount
+    name: console
+    namespace: mesh-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: console-scale-loadgen
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: console
+  namespace: mesh-demo
+  labels:
+    app: console
+    service: console
+spec:
+  selector:
+    app: console
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: console
+  namespace: mesh-demo
+  labels:
+    app: console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: console
+  template:
+    metadata:
+      labels:
+        app: console
+        version: v1
+    spec:
+      serviceAccountName: console
+      containers:
+        - name: console
+          image: docker.io/library/python:3.13-alpine
+          command: ["python", "-u", "/app/server.py"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: app
+          configMap:
+            name: console-app
+---
+# A second VirtualService on the same Gateway. For gateway-bound routes Istio
+# merges VirtualServices that share a host, so this adds /console next to the
+# /hello and /httpbin/ routes in mesh/gateway.yaml without touching that file.
+# Prefixes must not overlap: with two matching routes the order is undefined.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: console-route
+  namespace: mesh-demo
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - mesh-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /console
+      route:
+        - destination:
+            host: console
+            port:
+              number: 8080
